@@ -3,6 +3,7 @@ import cors from 'cors';
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { BrowserManager } from '../engine/browser.js';
 import { renderToImage } from '../engine/render.js';
 import { parseRenderConfig } from '../engine/validation.js';
 import { RenderError } from '../engine/errors.js';
@@ -13,6 +14,29 @@ function parseBytes(value: string | undefined, fallback: string): string {
   return value && value.trim() ? value.trim() : fallback;
 }
 
+function parseEnvInt(
+  name: string,
+  raw: string | undefined,
+  opts: { defaultValue: number; min: number; max?: number },
+): number {
+  if (raw == null || raw.trim() === '') return opts.defaultValue;
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/.test(trimmed)) {
+    throw new Error(`Invalid ${name}: "${raw}" is not an integer`);
+  }
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`Invalid ${name}: "${raw}" is not a safe integer`);
+  }
+  if (value < opts.min) {
+    throw new Error(`Invalid ${name}: "${raw}" must be >= ${opts.min}`);
+  }
+  if (opts.max != null && value > opts.max) {
+    throw new Error(`Invalid ${name}: "${raw}" must be <= ${opts.max}`);
+  }
+  return value;
+}
+
 export interface ServerConfig {
   port: number;
   host: string;
@@ -20,6 +44,8 @@ export interface ServerConfig {
   enableUrlCapture: boolean;
   urlAllowedHosts: string[];
   urlBlockedHosts: string[];
+  renderTimeoutMs: number;
+  renderConcurrency: number;
 }
 
 export function loadConfig(env = process.env): ServerConfig {
@@ -36,10 +62,23 @@ export function loadConfig(env = process.env): ServerConfig {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    renderTimeoutMs: parseEnvInt('RENDER_TIMEOUT_MS', env.RENDER_TIMEOUT_MS, {
+      defaultValue: 30_000,
+      min: 1000,
+      max: 120_000,
+    }),
+    renderConcurrency: parseEnvInt('RENDER_CONCURRENCY', env.RENDER_CONCURRENCY, {
+      defaultValue: 4,
+      min: 1,
+    }),
   };
 }
 
-export function createApp(config: ServerConfig) {
+export interface CreateAppDeps {
+  browserManager?: BrowserManager;
+}
+
+export function createApp(config: ServerConfig, deps: CreateAppDeps = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use(cors());
@@ -70,6 +109,8 @@ export function createApp(config: ServerConfig) {
       const result = await renderToImage(parsed.data, {
         allowedHosts: config.urlAllowedHosts,
         blockedHosts: config.urlBlockedHosts,
+        browser: deps.browserManager,
+        defaultTimeoutMs: config.renderTimeoutMs,
       });
       res.setHeader('Content-Type', result.mimeType);
       res.setHeader('X-Rasterly-Metadata', JSON.stringify(result.metadata));

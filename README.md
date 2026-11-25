@@ -206,8 +206,8 @@ Copy `.env.example` to `.env` and adjust. All variables are optional.
 | `HOST` | `127.0.0.1` | Bind address |
 | `CHROMIUM_EXECUTABLE_PATH` | _(bundled)_ | Use an existing Chromium/Chrome binary instead of Playwright's |
 | `CHROMIUM_NO_SANDBOX` | `false` | Pass `--no-sandbox` (needed in some rootless/container environments) |
-| `RENDER_CONCURRENCY` | `4` | Max concurrent render contexts |
-| `RENDER_TIMEOUT_MS` | `30000` | Per-job timeout |
+| `RENDER_CONCURRENCY` | `4` | Max concurrent render browser contexts. Requests above the limit are rejected. Valid positive integer. |
+| `RENDER_TIMEOUT_MS` | `30000` | Default per-render timeout in milliseconds when request omits `timeoutMs`. Per-request `timeoutMs` overrides this value. Valid integer: 1000-120000. |
 | `MAX_REQUEST_BYTES` | `2mb` | Max JSON body size |
 | `ENABLE_URL_CAPTURE` | `true` | Allow the URL-to-image feature |
 | `URL_ALLOWED_HOSTS` | _(empty)_ | Extra comma-separated hosts allowed for URL capture |

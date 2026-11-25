@@ -170,3 +170,20 @@ describe('compileJsx', () => {
     }
   });
 });
+
+describe('normalizeConfig timeout precedence', () => {
+  it('uses engine default timeout when request and default are absent', () => {
+    const config = normalizeConfig({ ...base });
+    expect(config.timeoutMs).toBe(30_000);
+  });
+
+  it('uses provided default timeout when request timeout is absent', () => {
+    const config = normalizeConfig({ ...base }, 45_000);
+    expect(config.timeoutMs).toBe(45_000);
+  });
+
+  it('prefers per-request timeout over provided default', () => {
+    const config = normalizeConfig({ ...base, timeoutMs: 5_000 }, 45_000);
+    expect(config.timeoutMs).toBe(5_000);
+  });
+});

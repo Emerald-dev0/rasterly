@@ -16,7 +16,10 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-export function normalizeConfig(config: RenderConfig): NormalizedRenderConfig {
+export function normalizeConfig(
+  config: RenderConfig,
+  defaultTimeoutMs: number = DEFAULT_TIMEOUT_MS,
+): NormalizedRenderConfig {
   const inputType = detectInputType(config.code, config.inputType);
   return {
     code: config.code,
@@ -29,7 +32,7 @@ export function normalizeConfig(config: RenderConfig): NormalizedRenderConfig {
     transparent: config.transparent && (config.format === 'png' || config.format === 'webp'),
     backgroundColor: config.backgroundColor,
     quality: config.quality,
-    timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    timeoutMs: config.timeoutMs ?? defaultTimeoutMs,
   };
 }
 
@@ -40,6 +43,8 @@ export interface RenderOptions {
   allowedHosts?: string[];
   /** Hosts always blocked for URL capture. */
   blockedHosts?: string[];
+  /** Default per-render timeout when request omits timeoutMs. */
+  defaultTimeoutMs?: number;
 }
 
 /**
@@ -54,7 +59,7 @@ export async function renderToImage(
   options: RenderOptions = {},
 ): Promise<RenderResult> {
   const started = Date.now();
-  const config = normalizeConfig(input);
+  const config = normalizeConfig(input, options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS);
   const manager = options.browser ?? getBrowserManager();
 
   const context = await manager.createContext();
