@@ -3,7 +3,13 @@ import { parseArgs } from 'node:util';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { renderToImage, RenderError, closeSharedBrowser } from '../engine/index.js';
-import type { InputType, OutputFormat, RenderConfig } from '../engine/index.js';
+import {
+  buildRenderConfig,
+  CliError,
+  formatParseArgsError,
+  resolveInputType,
+  type CliValues,
+} from './args.js';
 
 const HELP = `
 Rasterly — convert code to an image.
@@ -48,7 +54,7 @@ function parse(argv: string[]) {
     },
     allowPositionals: true,
   });
-  return { values, positionals };
+  return { values: values as CliValues, positionals };
 }
 
 async function readStdin(): Promise<string> {
@@ -58,45 +64,53 @@ async function readStdin(): Promise<string> {
 }
 
 async function main() {
-  const { values, positionals } = parse(process.argv.slice(2));
+  let values: CliValues;
+  let positionals: string[];
+  try {
+    ({ values, positionals } = parse(process.argv.slice(2)));
+  } catch (error) {
+    console.error(`Error: ${formatParseArgsError(error)}`);
+    console.error('Use --help for usage.');
+    process.exitCode = 1;
+    return;
+  }
 
   if (values.help) {
     console.log(HELP);
-    process.exit(0);
+    return;
+  }
+  if (values.stdin && positionals.length > 0) {
+    console.error('Error: Cannot use --stdin with a file/URL positional argument.');
+    console.error('Use --help for usage.');
+    process.exitCode = 1;
+    return;
   }
   if (!values.stdin && positionals.length === 0) {
     console.log(HELP);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const target = values.stdin ? '' : positionals[0];
   let code: string;
-  let inputType: InputType | undefined = values['input-type'] as InputType | undefined;
-
-  if (values.stdin) {
-    code = await readStdin();
-  } else if (target.startsWith('http://') || target.startsWith('https://')) {
-    code = target;
-    inputType = inputType ?? 'url';
-  } else {
-    code = await readFile(resolve(target), 'utf8');
+  try {
+    code = values.stdin ? await readStdin() : target.startsWith('http://') || target.startsWith('https://') ? target : await readFile(resolve(target), 'utf8');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Error: Failed to read input: ${message}`);
+    process.exitCode = 1;
+    return;
   }
 
-  const config: RenderConfig = {
-    code,
-    inputType: inputType ?? 'html',
-    format: (values.format as OutputFormat) ?? 'png',
-    width: Number(values.width ?? 1200),
-    height: Number(values.height ?? 800),
-    scale: (Number(values.scale ?? 1) as 1 | 2 | 3) ?? 1,
-    fullPage: values['full-page'],
-    transparent: values.transparent,
-    backgroundColor: values.background ?? '#ffffff',
-    quality: Number(values.quality ?? 90),
-    timeoutMs: values.timeout ? Number(values.timeout) : undefined,
-  };
-
   try {
+    const inputType = resolveInputType({
+      explicitType: values['input-type'],
+      stdin: Boolean(values.stdin),
+      target,
+      code,
+    });
+    const config = buildRenderConfig(values, code, inputType);
+
     const result = await renderToImage(config);
     const ext = result.extension;
     const out = values.output ?? `rasterly.${ext}`;
@@ -106,7 +120,10 @@ async function main() {
         `(${result.metadata.bytes} bytes) -> ${out}`,
     );
   } catch (error) {
-    if (error instanceof RenderError) {
+    if (error instanceof CliError) {
+      console.error(`Error: ${error.message}`);
+      console.error('Use --help for usage.');
+    } else if (error instanceof RenderError) {
       console.error(`Error [${error.code}]: ${error.message}`);
       if (error.detail) console.error(`  ${error.detail}`);
     } else {
@@ -118,4 +135,7 @@ async function main() {
   }
 }
 
-main();
+main().catch((error) => {
+  console.error('Unexpected error:', error);
+  process.exitCode = 1;
+});
